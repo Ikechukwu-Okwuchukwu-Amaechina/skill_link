@@ -86,6 +86,91 @@ Notes:
 - For images, only common types are allowed (jpg, jpeg, png, gif, webp, bmp, svg+xml).
 - For production, consider using cloud storage (S3, Cloudinary, etc.).
 
+### API Reference (Quick Copy)
+
+Base URL: `/api`
+
+Auth: Use `Authorization: Bearer <JWT>` for protected endpoints.
+
+Health
+
+- `GET /health` → `{ "status": "ok" }`
+
+Auth
+
+- `POST /api/auth/register`
+	- Body:
+		- `firstname`, `lastname`, `email`, `password` (required)
+		- `accountType` ("employer" | "skilled_worker")
+		- `skilledWorker` (object), `employer` (object)
+	- Example:
+		```json
+		{
+			"firstname": "Jane",
+			"lastname": "Doe",
+			"email": "jane@example.com",
+			"password": "secret123",
+			"accountType": "employer",
+			"employer": { "companyName": "Acme Inc", "location": "Lagos" }
+		}
+		```
+
+- `POST /api/auth/login`
+	- Body: `{ "email": "...", "password": "..." }`
+
+- `GET /api/auth/me` (auth)
+
+- `PATCH /api/auth/profile` (auth)
+	- Body: partial updates for top-level `firstname`, `lastname`, `accountType`, and nested `skilledWorker` / `employer` fields supported by the models.
+
+- `PATCH /api/auth/profile/employer/basic` (auth, employer)
+	- Body: `companyName`, `companyLogo`, `location`, `contactPreference` (either at top level or under `employer`).
+
+- `PATCH /api/auth/profile/employer/details` (auth, employer)
+	- Body: `industry`, `companySize`, `website`, `shortBio` (top-level or under `employer`).
+
+- `PATCH /api/auth/profile/employer/trust` (auth, employer)
+	- Accepts JSON or `multipart/form-data`.
+	- Multipart fields:
+		- `files`: one or more files
+		- `labels` or `labels[]` (optional; array aligned with files)
+	- JSON fallback body:
+		- `{ "employer": { "verificationDocs": [{ "label": "CAC Certificate", "fileUrl": "/uploads/cac.pdf" }] } }`
+	- Example (PowerShell, multipart):
+		```powershell
+		curl -Method Patch `
+			-Uri http://localhost:3000/api/auth/profile/employer/trust `
+			-Headers @{ Authorization = "Bearer <TOKEN>" } `
+			-Form @{ files = Get-Item .\docs\cac.pdf; labels = "CAC Certificate" }
+		```
+
+Jobs (auth)
+
+- `POST /api/jobs` (employer only)
+	- Body:
+		- `title`, `description`, `budgetRange: {min,max}` (required)
+		- `timeline`, `requiredSkills` (optional)
+	- Note: create response returns employer as ObjectId (not populated).
+
+- `GET /api/jobs`
+	- Returns jobs for the authenticated employer. Employer is populated with safe fields (`name`, `accountType`, `employer.companyName`, `employer.location`, `employer.website`).
+
+- `GET /api/jobs/:id`
+	- Returns a single job, employer populated with safe fields.
+
+- `PATCH /api/jobs/:id`
+	- Partial update; response has employer populated with safe fields.
+
+- `DELETE /api/jobs/:id`
+
+Workers (public)
+
+- `GET /api/workers/public`
+	- Query: `q`, `skills`, `location`, `minRate`, `maxRate`, `availability`, `minRating`, `page`, `limit`.
+
+- `GET /api/workers/:id`
+	- Get a single public skilled worker profile.
+
 ## Technologies Used
 
 - Node.js
