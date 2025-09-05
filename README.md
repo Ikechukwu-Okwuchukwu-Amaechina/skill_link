@@ -6,6 +6,10 @@ A Node.js backend scaffold for building a modular API service. The repository is
 
 - Structured API layout: `config/`, `controllers/`, `middleware/`, `models/`, `routes/`
 - Environment-based configuration via `.env`
+- MongoDB connection via Mongoose
+- Security middleware: Helmet, CORS, rate limiting, Mongo sanitize (no HPP)
+- Structured logging with Winston and request logs
+- Jest + Supertest testing scaffold
 - Ready for RESTful endpoints and middleware-driven logic
 - Simple start-up with Node.js; easy to extend with your preferred libraries
 
@@ -35,27 +39,75 @@ npm install
 @"
 PORT=3000
 NODE_ENV=development
-DATABASE_URL=
-JWT_SECRET=
+DATABASE_URL=mongodb://localhost:27017/skill_link
+JWT_SECRET=change_me
+LOG_LEVEL=debug
+TRUST_PROXY=false
+CORS_ORIGIN=http://localhost:3000
 "@ | Out-File -Encoding utf8 .env
 
 # 4) Start the server
-node server.js
+npm run dev
 ```
 
 If you prefer a watcher for development, you can install `nodemon` locally and run `npx nodemon server.js`.
 
 ## Usage
 
-- After starting the server, access your API at `http://localhost:3000` (or the port set in `PORT`).
+- After starting the server, access your API at `http://localhost:3000` (or the port set in `PORT`). Health at `/health`.
 - Implement routes under `routes/` and business logic in `controllers/`.
 - Add shared middleware in `middleware/` and configuration in `config/`.
+
+### Uploading Files (Beginner Friendly)
+
+This project now supports uploads using Multer.
+
+- Where are files saved? They are saved into the local `uploads/` folder.
+- How do I access them later? They are available at `http://localhost:3000/uploads/<filename>`.
+
+Endpoints:
+
+- `POST /api/uploads/image` — for images only. Field name: `image`.
+- `POST /api/uploads/file` — for any file. Field name: `file`.
+
+Examples (PowerShell):
+
+```powershell
+# Upload an image
+curl -Method Post -Uri http://localhost:3000/api/uploads/image -Form @{ image = Get-Item .\path\to\photo.jpg }
+
+# Upload any file
+curl -Method Post -Uri http://localhost:3000/api/uploads/file -Form @{ file = Get-Item .\path\to\document.pdf }
+```
+
+Notes:
+
+- Max file size is 10 MB by default.
+- For images, only common types are allowed (jpg, jpeg, png, gif, webp, bmp, svg+xml).
+- For production, consider using cloud storage (S3, Cloudinary, etc.).
 
 ## Technologies Used
 
 - Node.js
 - JavaScript (CommonJS)
 - npm
+ - Express
+ - Mongoose
+ - Jest / Supertest
+ - Winston
+
+## Testing
+
+Tests live in the `tests/` folder.
+
+```powershell
+npm test
+```
+
+## Notes
+
+- The server connects to MongoDB at startup. Ensure `DATABASE_URL` is set and the database is reachable when running `node server.js` or `npm run dev`.
+- Tests use the Express app directly and do not require a live DB for the health checks.
 
 ## Author
 

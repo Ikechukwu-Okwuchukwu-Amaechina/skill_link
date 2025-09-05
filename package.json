@@ -1,9 +1,11 @@
 {
   "name": "skill_link",
   "version": "1.0.0",
-  "main": "index.js",
+  "main": "server.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node server.js",
+    "dev": "nodemon server.js",
+    "test": "jest --runInBand"
   },
   "repository": {
     "type": "git",
@@ -16,5 +18,35 @@
     "url": "https://github.com/Ikechukwu-Okwuchukwu-Amaechina/skill_link/issues"
   },
   "homepage": "https://github.com/Ikechukwu-Okwuchukwu-Amaechina/skill_link#readme",
-  "description": ""
+  "description": "",
+  "jest": {
+    "testEnvironment": "node",
+    "roots": [
+      "<rootDir>/tests"
+    ]
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "compression": "^1.7.4",
+    "cookie-parser": "^1.4.6",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "express-mongo-sanitize": "^2.2.0",
+    "express-rate-limit": "^7.4.0",
+    "helmet": "^7.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.5.2",
+    "morgan": "^1.10.0",
+    "multer": "^2.0.2",
+    "winston": "^3.14.2",
+    "xss-clean": "^0.1.4"
+  },
+  "devDependencies": {
+    "cross-env": "^7.0.3",
+    "jest": "^29.7.0",
+    "mongodb-memory-server": "^10.1.4",
+    "nodemon": "^3.1.4",
+    "supertest": "^7.0.0"
+  }
 }
