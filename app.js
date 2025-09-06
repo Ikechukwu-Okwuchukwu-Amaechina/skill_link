@@ -24,6 +24,8 @@ if (process.env.CORS_ORIGIN) {
   allowedOrigins = process.env.CORS_ORIGIN.split(',').map(function (s) { return s.trim(); });
 }
 app.use(cors({ origin: allowedOrigins, credentials: true }));
+// Explicitly handle preflight across all routes
+app.options('*', cors({ origin: allowedOrigins, credentials: true }));
 
 // Body parsing
 app.use(express.json({ limit: '10kb' }));
