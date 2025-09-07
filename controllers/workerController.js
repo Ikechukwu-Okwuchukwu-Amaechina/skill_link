@@ -67,4 +67,33 @@ async function getWorker(req, res, next) {
   } catch (err) { next(err); }
 }
 
-module.exports = { listWorkers, getWorker };
+// exports are declared once at the end of the file
+// Extra endpoint to provide filter data (skills, locations, availability, rate range)
+async function workersMeta(req, res, next) {
+  try {
+    const filter = { accountType: 'skilled_worker', isActive: true };
+
+    const skills = await User.distinct('skilledWorker.primarySkills', filter);
+    const locations = await User.distinct('skilledWorker.location', filter);
+    const availability = await User.distinct('skilledWorker.availability', filter);
+
+    const minDoc = await User.findOne({ ...filter, 'skilledWorker.hourlyRate': { $ne: null } })
+      .sort({ 'skilledWorker.hourlyRate': 1 })
+      .select('skilledWorker.hourlyRate');
+    const maxDoc = await User.findOne({ ...filter, 'skilledWorker.hourlyRate': { $ne: null } })
+      .sort({ 'skilledWorker.hourlyRate': -1 })
+      .select('skilledWorker.hourlyRate');
+
+    res.json({
+      skills: (skills || []).filter(Boolean).sort(),
+      locations: (locations || []).filter(Boolean).sort(),
+      availability: (availability || []).filter(Boolean).sort(),
+      rate: {
+        min: minDoc?.skilledWorker?.hourlyRate ?? 0,
+        max: maxDoc?.skilledWorker?.hourlyRate ?? 0
+      }
+    });
+  } catch (err) { next(err); }
+}
+
+module.exports = { listWorkers, getWorker, workersMeta };

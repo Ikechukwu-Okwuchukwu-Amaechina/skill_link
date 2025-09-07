@@ -1,5 +1,6 @@
 const Job = require('../models/Job');
 const User = require('../models/User');
+const Invite = require('../models/Invite');
 
 function ensureEmployer(user) {
   return user && user.accountType === 'employer';
@@ -90,3 +91,60 @@ async function deleteJob(req, res, next) {
 }
 
 module.exports = { createJob, listMyJobs, getJob, updateJob, deleteJob };
+ 
+// POST /api/jobs/:jobId/apply (worker)
+async function applyToJob(req, res, next) {
+  try {
+    const worker = await User.findById(req.userId);
+    if (!worker || worker.accountType !== 'skilled_worker') {
+      const e = new Error('Only skilled workers can apply'); e.status = 403; throw e;
+    }
+
+    const job = await Job.findById(req.params.jobId);
+    if (!job || job.isActive === false) { const e = new Error('Job not found or inactive'); e.status = 404; throw e; }
+
+    // prevent duplicate active applications
+    const existing = await Invite.findOne({
+      type: 'application', job: job._id, worker: worker._id, status: { $in: ['applied', 'approved'] }
+    });
+    if (existing) { const e = new Error('You already applied to this job'); e.status = 409; throw e; }
+
+    const invite = await Invite.create({
+      employer: job.employer,
+      worker: worker._id,
+      job: job._id,
+      message: req.body?.message,
+      type: 'application',
+      status: 'applied'
+    });
+
+    res.status(201).json({ invite });
+  } catch (err) { next(err); }
+}
+
+// POST /api/jobs/:jobId/applications/:id/approve (employer) - but we'll keep id for invite record
+async function approveInviteOrApplication(req, res, next) {
+  try {
+    const employer = await User.findById(req.userId);
+    if (!employer || employer.accountType !== 'employer') { const e = new Error('Employer account required'); e.status = 403; throw e; }
+
+    const invite = await Invite.findById(req.params.id);
+    if (!invite) { const e = new Error('Record not found'); e.status = 404; throw e; }
+    if (invite.employer.toString() !== employer._id.toString()) { const e = new Error('Not authorized to approve this record'); e.status = 403; throw e; }
+
+    // Allowed transitions
+    if (invite.type === 'invite' && invite.status !== 'accepted') {
+      const e = new Error('Invite must be accepted by worker before approval'); e.status = 400; throw e;
+    }
+    if (invite.type === 'application' && invite.status !== 'applied') {
+      const e = new Error('Application is not in applied state'); e.status = 400; throw e;
+    }
+
+    invite.status = 'approved';
+    await invite.save();
+    res.json({ invite });
+  } catch (err) { next(err); }
+}
+
+module.exports.applyToJob = applyToJob;
+module.exports.approveInviteOrApplication = approveInviteOrApplication;
