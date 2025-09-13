@@ -16,7 +16,12 @@ const { notFoundHandler, errorHandler } = require('./middleware/errorHandlers');
 const app = express();
 
 // Security headers
-app.use(helmet());
+// Allow cross-origin resource loading for images and media (fixes CORP blocking)
+// Disable COEP to avoid cross-origin embedder restrictions when embedding assets
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+  crossOriginEmbedderPolicy: false,
+}));
 
 // CORS (simple style)
 let allowedOrigins = '*';
@@ -46,7 +51,12 @@ const limiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 100 });
 app.use('/api', limiter);
 
 // Static serving of uploaded files
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+// Add explicit CORP header for assets to permit cross-origin <img> usage
+app.use('/uploads', express.static(path.join(__dirname, 'uploads'), {
+  setHeaders: function (res) {
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  }
+}));
 
 // Logging
 app.use(httpLogger);
