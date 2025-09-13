@@ -38,6 +38,18 @@ const messageSchema = new mongoose.Schema(
   { _id: true }
 );
 
+// Lightweight project events for actions like request payment, extend deadline, etc.
+const eventSchema = new mongoose.Schema(
+  {
+    type: { type: String, enum: ['payment_request', 'deadline_extension', 'support'], required: true },
+    createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    text: { type: String, trim: true },
+    data: { type: Object },
+    createdAt: { type: Date, default: Date.now }
+  },
+  { _id: true }
+);
+
 const projectSchema = new mongoose.Schema(
   {
     title: { type: String, required: true, trim: true },
@@ -53,10 +65,16 @@ const projectSchema = new mongoose.Schema(
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
     assignedTo: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
 
+  // Optional link back to the originating Job
+  job: { type: mongoose.Schema.Types.ObjectId, ref: 'Job', index: true },
+
     // Details
     milestones: { type: [milestoneSchema], default: [] },
     submissions: { type: [submissionSchema], default: [] },
     messages: { type: [messageSchema], default: [] },
+
+  // Events history for simple auditing of key actions
+  events: { type: [eventSchema], default: [] },
 
     // Overall status
     status: { type: String, enum: ['active', 'completed', 'archived'], default: 'active' }

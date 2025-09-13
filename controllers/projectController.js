@@ -1,5 +1,7 @@
 const Project = require('../models/Project');
 const User = require('../models/User');
+const Invite = require('../models/Invite');
+const Job = require('../models/Job');
 
 // Tiny helper to ensure we have a valid user id in req (auth middleware sets req.userId)
 function requireAuth(req) {
@@ -16,9 +18,12 @@ async function listProjects(req, res, next) {
     requireAuth(req);
     const userId = req.userId;
 
-    const projects = await Project.find({
-      $or: [{ createdBy: userId }, { assignedTo: userId }]
-    })
+    const match = { $or: [{ createdBy: userId }, { assignedTo: userId }] };
+    if (req.query && req.query.status) {
+      match.status = req.query.status;
+    }
+
+    const projects = await Project.find(match)
       .sort({ updatedAt: -1 })
       .populate('createdBy', 'name accountType employer.companyName skilledWorker.fullName')
       .populate('assignedTo', 'name accountType skilledWorker.fullName');
@@ -57,12 +62,13 @@ async function getProject(req, res, next) {
 }
 
 // POST /api/projects
-// Very simple create; requires title and budget
+// Very simple create; requires title and budget (Employer only)
 async function createProject(req, res, next) {
   try {
     requireAuth(req);
-    const user = await User.findById(req.userId);
+  const user = await User.findById(req.userId);
     if (!user) { const e = new Error('User not found'); e.status = 404; throw e; }
+  if (user.accountType !== 'employer') { const e = new Error('Only employers can create projects'); e.status = 403; throw e; }
 
     const { title, category, budget, currency, deadline, assignedTo, milestones } = req.body;
     if (!title) { const e = new Error('title is required'); e.status = 400; throw e; }
@@ -105,8 +111,257 @@ async function updateProject(req, res, next) {
     const saved = await Project.findByIdAndUpdate(p._id, updates, { new: true, runValidators: true })
       .populate('createdBy', 'name accountType employer.companyName skilledWorker.fullName')
       .populate('assignedTo', 'name accountType skilledWorker.fullName');
+
+    // If project is marked completed, reflect completion on related job/invite (novice/simple sync)
+    if ((updates.status && updates.status === 'completed') || saved.status === 'completed') {
+      try {
+        if (saved.job) {
+          await Invite.updateMany({ job: saved.job, worker: saved.assignedTo }, { status: 'completed' });
+          await Job.findByIdAndUpdate(saved.job, { isActive: false });
+        }
+      } catch (_) {
+        // swallow sync errors to avoid blocking response
+      }
+    }
     res.json({ project: saved });
   } catch (err) { next(err); }
 }
 
-module.exports = { listProjects, getProject, createProject, updateProject };
+// Simple helper: load the current user and the project and check membership
+async function getProjectIfMember(req) {
+  requireAuth(req);
+  const user = await User.findById(req.userId);
+  if (!user) { const e = new Error('User not found'); e.status = 404; throw e; }
+
+  // No populate needed here; we just need ids for checks
+  const project = await Project.findById(req.params.id);
+  if (!project) { const e = new Error('Project not found'); e.status = 404; throw e; }
+
+  // Is the viewer part of this project?
+  const viewerId = String(req.userId);
+  const createdById = project.createdBy ? String(project.createdBy) : '';
+  const assignedToId = project.assignedTo ? String(project.assignedTo) : '';
+  const isCreator = createdById === viewerId;
+  const isAssignee = assignedToId === viewerId;
+
+  if (!isCreator && !isAssignee) {
+    const e = new Error('Not authorized'); e.status = 403; throw e;
+  }
+
+  return { project, user, isCreator, isAssignee };
+}
+
+// Messages
+async function getProjectMessages(req, res, next) {
+  try {
+  const ctx = await getProjectIfMember(req);
+  const p = ctx.project;
+    // return newest last
+    const messages = [...p.messages].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+    res.json({ messages });
+  } catch (err) { next(err); }
+}
+
+async function addProjectMessage(req, res, next) {
+  try {
+  const ctx = await getProjectIfMember(req);
+  const p = ctx.project;
+    const text = (req.body && String(req.body.text || '')).trim();
+    if (!text) { const e = new Error('text is required'); e.status = 400; throw e; }
+    p.messages.push({ sender: req.userId, text, createdAt: new Date() });
+    await p.save();
+    const last = p.messages[p.messages.length - 1];
+    res.status(201).json({ message: last });
+  } catch (err) { next(err); }
+}
+
+// File submissions (simple file sharing)
+async function getProjectSubmissions(req, res, next) {
+  try {
+  const ctx = await getProjectIfMember(req);
+  const p = ctx.project;
+    res.json({ submissions: p.submissions || [] });
+  } catch (err) { next(err); }
+}
+
+async function addProjectSubmission(req, res, next) {
+  try {
+  const ctx = await getProjectIfMember(req);
+  const p = ctx.project;
+  const body = req.body || {};
+  const filename = body.filename;
+  const url = body.url;
+  const note = body.note;
+    if (!url) { const e = new Error('url is required'); e.status = 400; throw e; }
+    p.submissions.push({ filename, url, note, uploadedAt: new Date() });
+    await p.save();
+    const file = p.submissions[p.submissions.length - 1];
+    res.status(201).json({ submission: file });
+  } catch (err) { next(err); }
+}
+
+async function deleteProjectSubmission(req, res, next) {
+  try {
+  const ctx = await getProjectIfMember(req);
+  const p = ctx.project;
+    const id = req.params.submissionId;
+    const sub = p.submissions.id(id);
+    if (!sub) { const e = new Error('Submission not found'); e.status = 404; throw e; }
+    sub.deleteOne();
+    await p.save();
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+}
+
+// Milestones
+async function updateMilestone(req, res, next) {
+  try {
+    const ctx = await getProjectIfMember(req);
+    const p = ctx.project;
+    const isCreator = ctx.isCreator;
+    const isAssignee = ctx.isAssignee;
+    const user = ctx.user;
+    const m = p.milestones.id(req.params.milestoneId);
+    if (!m) { const e = new Error('Milestone not found'); e.status = 404; throw e; }
+    // Beginner-friendly role checks
+    const body = req.body || {};
+    if (isAssignee && !isCreator && user.accountType === 'skilled_worker') {
+      // Worker: can only move their own milestone to in_progress or submitted
+      if (body.status !== 'in_progress' && body.status !== 'submitted') {
+        const e = new Error('Workers can only set status to in_progress or submitted'); e.status = 403; throw e;
+      }
+      m.status = body.status;
+    } else if (isCreator && user.accountType === 'employer') {
+      // Employer (creator): can edit all basic fields including approving
+      if (body.title !== undefined) m.title = body.title;
+      if (body.description !== undefined) m.description = body.description;
+      if (body.deadline !== undefined) m.deadline = body.deadline;
+      if (body.status !== undefined) m.status = body.status;
+    } else {
+      const e = new Error('Not authorized to edit milestone'); e.status = 403; throw e;
+    }
+    await p.save();
+    res.json({ milestone: m });
+  } catch (err) { next(err); }
+}
+
+// Actions: request payment, extend deadline, contact support
+async function requestPayment(req, res, next) {
+  try {
+  const ctx = await getProjectIfMember(req);
+  const p = ctx.project;
+  const isAssignee = ctx.isAssignee;
+  if (!isAssignee) { const e = new Error('Only assigned user can request payment'); e.status = 403; throw e; }
+    const body = req.body || {};
+  const amount = Number(body.amount || 0);
+  if (!(amount > 0)) { const e = new Error('amount is required'); e.status = 400; throw e; }
+    const text = body.text;
+    p.events.push({ type: 'payment_request', createdBy: req.userId, text, data: { amount } });
+    await p.save();
+    const ev = p.events[p.events.length - 1];
+    res.status(201).json({ event: ev });
+  } catch (err) { next(err); }
+}
+
+async function extendDeadline(req, res, next) {
+  try {
+  const ctx = await getProjectIfMember(req);
+  const p = ctx.project;
+  const isCreator = ctx.isCreator;
+  const user = ctx.user;
+  if (!(isCreator && user.accountType === 'employer')) { const e = new Error('Only project creator (employer) can extend deadline'); e.status = 403; throw e; }
+    const current = p.deadline;
+    let to = null;
+    if (req.body && req.body.deadline) { to = new Date(req.body.deadline); }
+    if (!to || Number.isNaN(+to)) { const e = new Error('deadline is required'); e.status = 400; throw e; }
+    p.deadline = to;
+    const text = req.body && req.body.text ? req.body.text : undefined;
+    p.events.push({ type: 'deadline_extension', createdBy: req.userId, data: { from: current, to }, text: text });
+    await p.save();
+    res.json({ project: p });
+  } catch (err) { next(err); }
+}
+
+async function contactSupport(req, res, next) {
+  try {
+  const ctx = await getProjectIfMember(req);
+  const p = ctx.project;
+    const text = (req.body && String(req.body.text || '')).trim();
+    if (!text) { const e = new Error('text is required'); e.status = 400; throw e; }
+    p.events.push({ type: 'support', createdBy: req.userId, text });
+    await p.save();
+    const ev = p.events[p.events.length - 1];
+    res.status(201).json({ event: ev });
+  } catch (err) { next(err); }
+}
+
+// Workers can request a deadline extension without modifying the date
+async function requestDeadlineExtension(req, res, next) {
+  try {
+  const ctx = await getProjectIfMember(req);
+  const p = ctx.project;
+  const isAssignee = ctx.isAssignee;
+  if (!isAssignee) { const e = new Error('Only assigned user can request deadline extension'); e.status = 403; throw e; }
+  const body = req.body || {};
+  const proposedDate = body.proposedDate;
+  const text = body.text || 'Worker requested deadline extension';
+  p.events.push({ type: 'deadline_extension', createdBy: req.userId, data: { proposedDate }, text: text });
+    await p.save();
+    const ev = p.events[p.events.length - 1];
+    res.status(201).json({ event: ev });
+  } catch (err) { next(err); }
+}
+
+// Approve a specific deadline extension request (creator/employer only)
+// POST /api/projects/:id/actions/approve-deadline-extension/:eventId
+async function approveDeadlineExtension(req, res, next) {
+  try {
+    const ctx = await getProjectIfMember(req);
+    const p = ctx.project;
+    const isCreator = ctx.isCreator;
+    const user = ctx.user;
+    if (!(isCreator && user.accountType === 'employer')) { const e = new Error('Only project creator (employer) can approve deadline extension'); e.status = 403; throw e; }
+
+    const eventId = req.params.eventId;
+    const ev = p.events.id(eventId);
+    if (!ev || ev.type !== 'deadline_extension') { const e = new Error('Deadline extension request not found'); e.status = 404; throw e; }
+
+    // Prefer proposedDate stored in the request event; allow override via body.deadline
+    let to = ev?.data?.proposedDate ? new Date(ev.data.proposedDate) : null;
+    if (req.body && req.body.deadline) { to = new Date(req.body.deadline); }
+    if (!to || Number.isNaN(+to)) { const e = new Error('Valid deadline is required to approve'); e.status = 400; throw e; }
+
+    const from = p.deadline || null;
+    p.deadline = to;
+
+    // Mark the original request as approved inside its data blob
+    ev.data = { ...(ev.data || {}), approved: true, approvedAt: new Date(), approvedBy: req.userId, appliedTo: to };
+
+    // Log an approval event (reuse same type for simplicity)
+    const text = req.body && req.body.text ? req.body.text : 'Deadline extension approved';
+    p.events.push({ type: 'deadline_extension', createdBy: req.userId, text, data: { from, to, requestId: eventId, approved: true } });
+    await p.save();
+
+    const approval = p.events[p.events.length - 1];
+    res.json({ project: p, event: approval });
+  } catch (err) { next(err); }
+}
+
+module.exports = {
+  listProjects,
+  getProject,
+  createProject,
+  updateProject,
+  // new endpoints
+  getProjectMessages,
+  addProjectMessage,
+  getProjectSubmissions,
+  addProjectSubmission,
+  deleteProjectSubmission,
+  updateMilestone,
+  requestPayment,
+  extendDeadline,
+  contactSupport,
+  requestDeadlineExtension
+  ,approveDeadlineExtension
+};

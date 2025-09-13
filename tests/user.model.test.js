@@ -17,7 +17,7 @@ afterAll(async () => {
 
 describe('User model', () => {
   it('hashes password when using setPassword', async () => {
-    const user = new User({ name: 'Test', email: 't@example.com', passwordHash: 'temp' });
+    const user = new User({ name: 'Test', email: 't@example.com', phone: '+1234567890', passwordHash: 'temp' });
     user.setPassword('secret123');
     await user.save();
 
@@ -26,7 +26,7 @@ describe('User model', () => {
   });
 
   it('checkPassword returns true for correct password', async () => {
-    const u = new User({ name: 'A', email: 'a@example.com', passwordHash: 'temp' });
+    const u = new User({ name: 'A', email: 'a@example.com', phone: '+1234567891', passwordHash: 'temp' });
     u.setPassword('mypassword');
     await u.save();
 

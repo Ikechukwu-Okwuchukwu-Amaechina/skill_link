@@ -10,7 +10,7 @@ const inviteSchema = new mongoose.Schema(
     job: { type: mongoose.Schema.Types.ObjectId, ref: 'Job', required: true },
     message: { type: String, trim: true },
     type: { type: String, enum: ['invite', 'application'], default: 'invite', index: true },
-    status: { type: String, enum: ['pending', 'accepted', 'declined', 'applied', 'approved'], default: 'pending', index: true }
+    status: { type: String, enum: ['pending', 'accepted', 'declined', 'applied', 'approved', 'completed'], default: 'pending', index: true }
   },
   { timestamps: true }
 );

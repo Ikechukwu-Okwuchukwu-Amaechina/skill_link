@@ -12,6 +12,7 @@ A Node.js backend scaffold for building a modular API service. The repository is
 - Jest + Supertest testing scaffold
 - Ready for RESTful endpoints and middleware-driven logic
 - Simple start-up with Node.js; easy to extend with your preferred libraries
+ - Built-in uploads, project management, invitations/applications, reviews, and simple wallet/payments flows
 
 ## Installation
 
@@ -41,6 +42,9 @@ PORT=3000
 NODE_ENV=development
 DATABASE_URL=mongodb://localhost:27017/skill_link
 JWT_SECRET=change_me
+JWT_EXPIRES_IN=7d
+EMAIL_USER=your_gmail_address@example.com
+EMAIL_PASS=your_gmail_app_password
 LOG_LEVEL=debug
 TRUST_PROXY=false
 CORS_ORIGIN=http://localhost:3000
@@ -98,9 +102,18 @@ Health
 
 Auth
 
+- `POST /api/auth/send-otp`
+	- Body: `{ "email": "user@example.com" }`
+	- Sends a 6-digit OTP to the email (in dev, logs to console on failure).
+
+- `POST /api/auth/verify-otp`
+	- Body: `{ "email": "user@example.com", "code": "123456" }`
+	- Verifies OTP before registration.
+
 - `POST /api/auth/register`
 	- Body:
 		- `firstname`, `lastname`, `email`, `password` (required)
+		- `phone` (required)
 		- `accountType` ("employer" | "skilled_worker")
 		- `skilledWorker` (object), `employer` (object)
 	- Example:
@@ -163,6 +176,10 @@ Jobs (auth)
 
 - `DELETE /api/jobs/:id`
 
+- Worker applications & approvals
+	- `POST /api/jobs/:jobId/apply` (auth, skilled worker)
+	- `POST /api/jobs/:jobId/applications/:id/approve` (auth, employer) — approves a worker application and creates a Project; also closes the Job.
+
 Workers (public)
 
 - `GET /api/workers/public`
@@ -170,6 +187,58 @@ Workers (public)
 
 - `GET /api/workers/:id`
 	- Get a single public skilled worker profile.
+
+Workers (auth)
+
+- `GET /api/workers/dashboard` — summary for worker’s homepage (active projects, messages, earnings review).
+- `GET /api/workers/jobs/invitations` — pending job invites for the worker.
+- `GET /api/workers/jobs/active` — active jobs/projects.
+- `GET /api/workers/jobs/completed` — completed jobs/projects.
+- `POST /api/workers/jobs/invitations/:id/accept` — accept an invite (creates an active Project and closes the Job).
+- `POST /api/workers/jobs/invitations/:id/decline` — decline an invite.
+
+Worker payments
+
+- `GET /api/workers/payments/overview` — accountBalance, totalSpent, pendingPayments.
+- `GET /api/workers/payments/history` — paginated transaction history.
+- `POST /api/workers/payments/withdrawals` — request a withdrawal.
+
+Employers (auth)
+
+- `GET /api/employers/dashboard` — summary (active jobs, pending actions, proposals, messages).
+- `GET /api/employers/payments/overview` — wallet balance, spent, pending.
+- `GET /api/employers/payments/history` — paginated payments history.
+- `POST /api/employers/wallet/deposit` — fund employer wallet.
+- `POST /api/employers/projects/:id/payments` — pay a worker for a project (and mark a payment request event as paid if provided).
+
+Invites & Applications (auth)
+
+- `POST /api/invites` (employer) — invite a worker to a Job.
+- `GET /api/invites` — list invites/applications relevant to current user.
+- `GET /api/invites/:id` — get one invite/application (must be participant).
+- `POST /api/invites/:id/accept` (worker) — accept an invite; immediately creates an active Project and closes the Job.
+- `POST /api/invites/:id/decline` (worker) — decline an invite.
+
+Projects (auth)
+
+- `GET /api/projects` — projects where you’re creator or assignee.
+- `POST /api/projects` (employer) — create a project.
+- `GET /api/projects/:id` — get one project (creator or assignee only).
+- `PATCH /api/projects/:id` — update base fields; creator only.
+- Messages: `GET /api/projects/:id/messages`, `POST /api/projects/:id/messages`
+- Submissions: `GET /api/projects/:id/submissions`, `POST /api/projects/:id/submissions`, `DELETE /api/projects/:id/submissions/:submissionId`
+- Milestones: `PATCH /api/projects/:id/milestones/:milestoneId` (workers can set to in_progress/submitted; employers can approve/edit)
+- Actions:
+	- `POST /api/projects/:id/actions/request-payment` (assignee)
+	- `POST /api/projects/:id/actions/extend-deadline` (creator)
+	- `POST /api/projects/:id/actions/request-deadline-extension` (assignee)
+	- `POST /api/projects/:id/actions/approve-deadline-extension/:eventId` (creator)
+
+Reviews & Ratings
+
+- `POST /api/reviews` (auth) — create a review after project completion.
+- `GET /api/reviews/worker/:id` — public reviews for a worker with stats.
+- `GET /api/reviews/history/me` (auth) — reviews authored by current user.
 
 ## Technologies Used
 
@@ -180,6 +249,7 @@ Workers (public)
  - Mongoose
  - Jest / Supertest
  - Winston
+ - Multer (uploads)
 
 ## Testing
 
@@ -189,10 +259,24 @@ Tests live in the `tests/` folder.
 npm test
 ```
 
+Notes:
+- Tests are colocated under `tests/` and run in-band for better stability in constrained environments.
+- Some flows use in-memory OTP and mock/fallback email delivery for development.
+
+## Domain Models (Quick Look)
+
+- User: supports `accountType` of `skilled_worker` or `employer` with nested profiles (`skilledWorker`, `employer`).
+- Job: jobs posted by employers; workers may apply; invites can be sent to workers.
+- Project: created when an application is approved or an invite is accepted; contains milestones, messages, submissions, events, and status.
+- Invite: handles both employer invites (`type: "invite"`) and worker applications (`type: "application"`).
+- Review: rating and feedback between project participants after completion.
+- Payment: very simple wallet-like model for employer deposits, employer-to-worker earnings, and worker withdrawals.
+
 ## Notes
 
 - The server connects to MongoDB at startup. Ensure `DATABASE_URL` is set and the database is reachable when running `node server.js` or `npm run dev`.
 - Tests use the Express app directly and do not require a live DB for the health checks.
+ - Email OTP uses `EMAIL_USER`/`EMAIL_PASS` (Gmail/app password). In development, failures fall back to logging the OTP to the console.
 
 ## Author
 

@@ -11,16 +11,18 @@ jest.setTimeout(60000);
 let mongo;
 
 async function registerEmployer(email = 'emp@example.com') {
+  const phone = '+1234' + Math.floor(Math.random() * 1000000).toString().padStart(6, '0');
   const res = await request(app)
     .post('/api/auth/register')
-    .send({ firstname: 'Emp', lastname: 'Loyer', email, password: 'secret123', accountType: 'employer' });
+    .send({ firstname: 'Emp', lastname: 'Loyer', email, phone, password: 'secret123', accountType: 'employer' });
   return res.body.token;
 }
 
 async function registerWorker(email = 'worker@example.com') {
+  const phone = '+1235' + Math.floor(Math.random() * 1000000).toString().padStart(6, '0');
   const res = await request(app)
     .post('/api/auth/register')
-    .send({ firstname: 'Skill', lastname: 'Worker', email, password: 'secret123', accountType: 'skilled_worker' });
+    .send({ firstname: 'Skill', lastname: 'Worker', email, phone, password: 'secret123', accountType: 'skilled_worker' });
   return res.body.token;
 }
 

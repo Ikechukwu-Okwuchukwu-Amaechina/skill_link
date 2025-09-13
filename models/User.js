@@ -11,9 +11,12 @@ const userSchema = new mongoose.Schema(
     firstname: { type: String, trim: true },
     lastname: { type: String, trim: true },
     email: { type: String, required: true, unique: true, lowercase: true, trim: true },
+    phone: { type: String, required: true, trim: true },
     passwordHash: { type: String, required: true },
     role: { type: String, enum: ['user', 'admin'], default: 'user' },
     isActive: { type: Boolean, default: true },
+    isPhoneVerified: { type: Boolean, default: false },
+    isEmailVerified: { type: Boolean, default: false },
 
     // Account type to distinguish between skilled workers and employers
     accountType: { type: String, enum: ['skilled_worker', 'employer'], default: 'skilled_worker', index: true },

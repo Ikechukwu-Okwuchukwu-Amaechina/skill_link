@@ -11,16 +11,18 @@ jest.setTimeout(60000);
 let mongo;
 
 async function registerEmployer(email = 'boss@example.com') {
+  const phone = '+1238' + Math.floor(Math.random() * 1000000).toString().padStart(6, '0');
   const res = await request(app)
     .post('/api/auth/register')
-    .send({ firstname: 'Big', lastname: 'Boss', email, password: 'secret123', accountType: 'employer' });
+    .send({ firstname: 'Big', lastname: 'Boss', email, phone, password: 'secret123', accountType: 'employer' });
   return { token: res.body.token, user: res.body.user };
 }
 
 async function registerWorker(email = 'pro@example.com') {
+  const phone = '+1239' + Math.floor(Math.random() * 1000000).toString().padStart(6, '0');
   const res = await request(app)
     .post('/api/auth/register')
-    .send({ firstname: 'Pro', lastname: ' Worker', email, password: 'secret123', accountType: 'skilled_worker' });
+    .send({ firstname: 'Pro', lastname: ' Worker', email, phone, password: 'secret123', accountType: 'skilled_worker' });
   return { token: res.body.token, user: res.body.user };
 }
 
@@ -63,15 +65,11 @@ describe('Invite/Application approval flow', () => {
     const accept = await request(app)
       .post(`/api/invites/${inviteId}/accept`)
       .set('Authorization', `Bearer ${workerToken}`);
-    expect(accept.status).toBe(200);
-    expect(accept.body.invite.status).toBe('accepted');
+  expect(accept.status).toBe(200);
+  // Accepting an employer invite immediately approves and creates a Project
+  expect(accept.body.invite.status).toBe('approved');
 
-    // Employer approves
-    const approve = await request(app)
-      .post(`/api/jobs/applications/${inviteId}/approve`)
-      .set('Authorization', `Bearer ${empToken}`);
-    expect(approve.status).toBe(200);
-    expect(approve.body.invite.status).toBe('approved');
+  // No further approval step needed for employer invite path
   });
 
   test('worker applies to job, employer approves', async () => {

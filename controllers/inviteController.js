@@ -72,6 +72,7 @@ async function acceptInvite(req, res, next) {
       currency: 'NGN',
       createdBy: invite.employer,
       assignedTo: invite.worker,
+      job: job._id,
       status: 'active',
       milestones: []
     });

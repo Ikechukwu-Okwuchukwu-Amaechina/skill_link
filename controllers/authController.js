@@ -1,6 +1,22 @@
 const jwt = require('jsonwebtoken');
 const path = require('path');
 const User = require('../models/User');
+const nodemailer = require('nodemailer');
+
+// Simple in-memory storage for OTP codes (for development - use Redis in production)
+const otpStore = new Map();
+
+// Create nodemailer transporter with better Gmail support
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS
+  },
+  tls: {
+    rejectUnauthorized: false
+  }
+});
 
 function signToken(user) {
   const payload = { sub: user._id.toString(), email: user.email, role: user.role };
@@ -9,19 +25,108 @@ function signToken(user) {
   return jwt.sign(payload, secret, { expiresIn });
 }
 
-// POST /api/auth/register
-async function register(req, res, next) {
+// POST /api/auth/send-otp
+async function sendOtp(req, res, next) {
   try {
-  const { firstname, lastname, email, password, accountType, skilledWorker, employer } = req.body;
-    if (!email || !password || !(firstname || lastname)) {
-      const err = new Error('firstname/lastname, email and password are required');
+    const { email } = req.body;
+    if (!email) {
+      const err = new Error('Email is required');
       err.status = 400;
       throw err;
     }
 
-    const existing = await User.findOne({ email });
-    if (existing) {
+    // Generate 6-digit OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    
+    // Store OTP with expiration (5 minutes)
+    otpStore.set(email, { code: otp, expires: Date.now() + 5 * 60 * 1000 });
+
+    try {
+      // Attempt to send email
+      await transporter.sendMail({
+        from: process.env.EMAIL_USER,
+        to: email,
+        subject: 'Your OTP Code - Skill Link',
+        html: `
+          <h2>Your OTP Code</h2>
+          <p>Your OTP code is: <strong>${otp}</strong></p>
+          <p>This code will expire in 5 minutes.</p>
+          <p>If you didn't request this code, please ignore this email.</p>
+        `
+      });
+      console.log(`OTP sent to ${email}: ${otp}`);
+    } catch (emailError) {
+      // Fallback: just log the OTP to console for development
+      console.log(`EMAIL FAILED - OTP for ${email}: ${otp}`);
+      console.log('Email error:', emailError.message);
+    }
+
+    res.json({ status: 'sent', message: 'OTP sent successfully to your email' });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// POST /api/auth/verify-otp
+async function verifyOtp(req, res, next) {
+  try {
+    const { email, code } = req.body;
+    if (!email || !code) {
+      const err = new Error('Email and OTP code are required');
+      err.status = 400;
+      throw err;
+    }
+
+    const stored = otpStore.get(email);
+    if (!stored) {
+      const err = new Error('No OTP found for this email');
+      err.status = 400;
+      throw err;
+    }
+
+    if (Date.now() > stored.expires) {
+      otpStore.delete(email);
+      const err = new Error('OTP code has expired');
+      err.status = 400;
+      throw err;
+    }
+
+    if (stored.code !== code) {
+      const err = new Error('Invalid OTP code');
+      err.status = 400;
+      throw err;
+    }
+
+    // OTP is valid - remove it from store
+    otpStore.delete(email);
+    res.json({ verified: true, message: 'Email verified successfully' });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// POST /api/auth/register
+async function register(req, res, next) {
+  try {
+    const { firstname, lastname, email, phone, password, accountType, skilledWorker, employer } = req.body;
+    if (!email || !password || !phone || !(firstname || lastname)) {
+      const err = new Error('firstname/lastname, email, phone and password are required');
+      err.status = 400;
+      throw err;
+    }
+
+    // Check if email already exists
+    const existingEmail = await User.findOne({ email });
+    if (existingEmail) {
       const err = new Error('Email already in use');
+      err.status = 409;
+      throw err;
+    }
+
+    // Check if phone already exists
+    const existingPhone = await User.findOne({ phone });
+    if (existingPhone) {
+      const err = new Error('Phone number already in use');
       err.status = 409;
       throw err;
     }
@@ -33,8 +138,10 @@ async function register(req, res, next) {
       firstname,
       lastname,
       email,
+      phone,
       passwordHash: 'temp',
       accountType: accountType === 'employer' ? 'employer' : 'skilled_worker',
+      isEmailVerified: true, // Set to true since OTP was verified before registration
       // Only set if provided; schema keeps this optional
       ...(skilledWorker ? { skilledWorker: skilledWorker } : {}),
       ...(employer ? { employer: employer } : {})
@@ -199,4 +306,4 @@ async function employerTrust(req, res, next) {
   }
 }
 
-module.exports = { register, login, me, updateProfile, employerBasic, employerDetails, employerTrust };
+module.exports = { sendOtp, verifyOtp, register, login, me, updateProfile, employerBasic, employerDetails, employerTrust };

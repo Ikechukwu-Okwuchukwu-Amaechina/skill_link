@@ -1,6 +1,7 @@
 const Job = require('../models/Job');
 const User = require('../models/User');
 const Invite = require('../models/Invite');
+const Project = require('../models/Project');
 
 function ensureEmployer(user) {
   return user && user.accountType === 'employer';
@@ -142,6 +143,27 @@ async function approveInviteOrApplication(req, res, next) {
 
     invite.status = 'approved';
     await invite.save();
+
+    // Create a Project upon approval (application path)
+    const job = await Job.findById(invite.job);
+    if (job) {
+      // close job
+      job.isActive = false;
+      await job.save();
+
+      await Project.create({
+        title: job.title || 'Project',
+        category: job.timeline || 'General',
+        budget: job?.budgetRange?.max ?? job?.budgetRange?.min ?? 0,
+        currency: 'NGN',
+        createdBy: invite.employer,
+        assignedTo: invite.worker,
+        job: job._id,
+        status: 'active',
+        milestones: []
+      });
+    }
+
     res.json({ invite });
   } catch (err) { next(err); }
 }
