@@ -35,8 +35,8 @@ async function sendOtp(req, res, next) {
       throw err;
     }
 
-    // Generate 6-digit OTP
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+  // Generate 4-digit OTP
+  const otp = Math.floor(1000 + Math.random() * 9000).toString();
     
     // Store OTP with expiration (5 minutes)
     otpStore.set(email, { code: otp, expires: Date.now() + 5 * 60 * 1000 });

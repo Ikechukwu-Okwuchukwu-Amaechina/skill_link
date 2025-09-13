@@ -104,10 +104,10 @@ Auth
 
 - `POST /api/auth/send-otp`
 	- Body: `{ "email": "user@example.com" }`
-	- Sends a 6-digit OTP to the email (in dev, logs to console on failure).
+	- Sends a 4-digit OTP to the email (in dev, logs to console on failure).
 
 - `POST /api/auth/verify-otp`
-	- Body: `{ "email": "user@example.com", "code": "123456" }`
+	- Body: `{ "email": "user@example.com", "code": "1234" }`
 	- Verifies OTP before registration.
 
 - `POST /api/auth/register`
