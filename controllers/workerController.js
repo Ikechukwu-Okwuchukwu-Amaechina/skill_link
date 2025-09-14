@@ -5,6 +5,21 @@ const Project = require('../models/Project');
 const Review = require('../models/Review');
 const Payment = require('../models/Payment');
 
+// --- Helpers for displaying user info in messages (mirrors project controller) ---
+function pickAvatar(u) {
+  if (!u) return null;
+  if (u.accountType === 'employer') return u.employer?.companyLogo || null;
+  if (u.accountType === 'skilled_worker') return u.skilledWorker?.profileImage || null;
+  return null;
+}
+
+function pickDisplayName(u) {
+  if (!u) return '';
+  if (u.accountType === 'employer') return u.employer?.companyName || u.name || '';
+  if (u.accountType === 'skilled_worker') return u.skilledWorker?.fullName || u.name || '';
+  return u.name || '';
+}
+
 // GET /api/workers/public
 async function listWorkers(req, res, next) {
   try {
@@ -372,6 +387,10 @@ async function getWorkerDashboard(req, res, next) {
       Project.find({ assignedTo: workerId })
         .populate('createdBy', 'name employer.companyName')
         .populate({ path: 'job', select: 'title description', populate: { path: 'employer', select: 'name employer.companyName' } })
+        .populate({
+          path: 'messages.sender',
+          select: 'name accountType employer.companyName employer.companyLogo skilledWorker.fullName skilledWorker.profileImage'
+        })
         .sort({ createdAt: -1 })
         .limit(100)
         .lean(),
@@ -395,12 +414,16 @@ async function getWorkerDashboard(req, res, next) {
       for (const m of msgs) {
         const ts = new Date(m.createdAt || p.createdAt).getTime();
         if (ts >= sevenDaysAgo && String(m.sender) !== String(workerId)) newMessages += 1;
+        const senderObj = (m && typeof m.sender === 'object' && m.sender?._id) ? m.sender : null;
+        const senderView = senderObj
+          ? { _id: String(senderObj._id), name: pickDisplayName(senderObj), accountType: senderObj.accountType, avatar: pickAvatar(senderObj) }
+          : (m.sender ? { _id: String(m.sender), name: '', accountType: undefined, avatar: null } : null);
         messageItems.push({
           projectId: String(p._id),
           projectTitle: p.title,
           text: m.text,
           createdAt: m.createdAt || p.createdAt,
-          sender: m.sender
+          sender: senderView
         });
       }
     }
