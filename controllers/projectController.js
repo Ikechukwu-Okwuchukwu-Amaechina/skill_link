@@ -12,6 +12,36 @@ function requireAuth(req) {
   }
 }
 
+// --- View helpers for messages ---
+function pickAvatar(u) {
+  if (!u) return null;
+  // prefer worker profile image, else employer logo
+  return u?.skilledWorker?.profileImage || u?.employer?.companyLogo || null;
+}
+
+function pickDisplayName(u) {
+  if (!u) return '';
+  // prefer company name for employers, else user name/fullName
+  return u?.employer?.companyName || u?.skilledWorker?.fullName || u?.name || '';
+}
+
+function toMessageView(m) {
+  // m may be a plain object (lean) or mongoose subdoc
+  const id = m?._id?.toString ? m._id.toString() : String(m?._id || '');
+  const sender = m?.sender || null;
+  const senderObj = (sender && typeof sender === 'object' && sender._id) ? sender : null;
+  const senderId = senderObj?._id?.toString ? senderObj._id.toString() : (senderObj?._id || sender);
+  const senderView = senderObj
+    ? { _id: String(senderId), name: pickDisplayName(senderObj), accountType: senderObj.accountType, avatar: pickAvatar(senderObj) }
+    : (sender ? { _id: String(sender), name: '', accountType: undefined, avatar: null } : null);
+  return {
+    _id: id,
+    text: m?.text,
+    createdAt: m?.createdAt,
+    sender: senderView
+  };
+}
+
 // GET /api/projects
 // Lists all projects where the current user is creator or assignee.
 async function listProjects(req, res, next) {
@@ -39,7 +69,11 @@ async function getProject(req, res, next) {
     requireAuth(req);
     const p = await Project.findById(req.params.id)
       .populate('createdBy', 'name accountType employer.companyName skilledWorker.fullName')
-      .populate('assignedTo', 'name accountType skilledWorker.fullName');
+      .populate('assignedTo', 'name accountType skilledWorker.fullName')
+      .populate({
+        path: 'messages.sender',
+        select: 'name accountType employer.companyName employer.companyLogo skilledWorker.fullName skilledWorker.profileImage'
+      });
     if (!p) { const e = new Error('Project not found'); e.status = 404; throw e; }
 
     // Access check: allow creator or assignee.
@@ -58,7 +92,11 @@ async function getProject(req, res, next) {
     if (!isCreator && !isAssignee) {
       const e = new Error('Not authorized to view this project'); e.status = 403; throw e;
     }
-    res.json({ project: p });
+    // Map messages to include sender name + avatar; keep rest of project as-is
+    const po = p.toObject();
+    const messages = Array.isArray(po.messages) ? po.messages.map(toMessageView) : [];
+    po.messages = messages;
+    res.json({ project: po });
   } catch (err) { next(err); }
 }
 
@@ -182,23 +220,42 @@ async function getProjectIfMember(req) {
 // Messages
 async function getProjectMessages(req, res, next) {
   try {
-  const ctx = await getProjectIfMember(req);
-  const p = ctx.project;
-    // return newest last
-    const messages = [...p.messages].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+    const ctx = await getProjectIfMember(req);
+    const p = ctx.project;
+
+    // Reload only messages with sender populated for richer UI display
+    const projWithMsgs = await Project.findById(p._id)
+      .select('messages')
+      .populate({
+        path: 'messages.sender',
+        select: 'name accountType employer.companyName employer.companyLogo skilledWorker.fullName skilledWorker.profileImage'
+      })
+      .lean();
+
+    const messages = (projWithMsgs?.messages || [])
+      .slice()
+      .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
+      .map(toMessageView);
     res.json({ messages });
   } catch (err) { next(err); }
 }
 
 async function addProjectMessage(req, res, next) {
   try {
-  const ctx = await getProjectIfMember(req);
-  const p = ctx.project;
+    const ctx = await getProjectIfMember(req);
+    const p = ctx.project;
     const text = (req.body && String(req.body.text || '')).trim();
     if (!text) { const e = new Error('text is required'); e.status = 400; throw e; }
     p.messages.push({ sender: req.userId, text, createdAt: new Date() });
     await p.save();
+
+    // Populate sender for the newly added message
+    await p.populate({
+      path: 'messages.sender',
+      select: 'name accountType employer.companyName employer.companyLogo skilledWorker.fullName skilledWorker.profileImage'
+    });
     const last = p.messages[p.messages.length - 1];
+
     // Notify the other party about new message (beginner style)
     try {
       const link = `/app/projects/${p._id}`;
@@ -208,7 +265,7 @@ async function addProjectMessage(req, res, next) {
         await notify({ userId: toUser, title: 'New project message', message: 'You have a new message on a project', type: 'project', link, email: true });
       }
     } catch (_) { /* ignore notify errors */ }
-    res.status(201).json({ message: last });
+    res.status(201).json({ message: toMessageView(last) });
   } catch (err) { next(err); }
 }
 
