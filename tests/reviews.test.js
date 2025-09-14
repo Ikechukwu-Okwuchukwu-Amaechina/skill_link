@@ -97,4 +97,45 @@ describe('Reviews API', () => {
       .send({ projectId, rating: 4 });
     expect(res.status).toBe(400);
   });
+
+  test('worker can review employer on completed project and cannot duplicate', async () => {
+    const { token: empToken, user: emp } = await registerEmployer('employer2@example.com');
+    const { token: workerToken, user: worker } = await registerWorker('worker2@example.com');
+
+    // Employer creates a project and assigns worker
+    const created = await request(app)
+      .post('/api/projects')
+      .set('Authorization', `Bearer ${empToken}`)
+      .send({ title: 'Proj X', budget: 300, assignedTo: worker._id });
+    const projectId = created.body.project._id;
+
+    // Mark as completed
+    const updated = await request(app)
+      .patch(`/api/projects/${projectId}`)
+      .set('Authorization', `Bearer ${empToken}`)
+      .send({ status: 'completed' });
+    expect(updated.status).toBe(200);
+
+    // Worker reviews employer
+    const res1 = await request(app)
+      .post('/api/reviews')
+      .set('Authorization', `Bearer ${workerToken}`)
+      .send({ projectId, rating: 4, publicFeedback: 'Good client' });
+    expect(res1.status).toBe(201);
+    expect(res1.body.review.reviewee._id).toBe(String(emp._id));
+
+    // Duplicate should be blocked
+    const res2 = await request(app)
+      .post('/api/reviews')
+      .set('Authorization', `Bearer ${workerToken}`)
+      .send({ projectId, rating: 5 });
+    expect([409, 400]).toContain(res2.status);
+
+    // Employer public reviews should include it
+    const list = await request(app)
+      .get(`/api/reviews/employer/${emp._id}`);
+    expect(list.status).toBe(200);
+    expect(list.body.stats.count).toBe(1);
+    expect(list.body.reviews[0].reviewer.name).toBeTruthy();
+  });
 });

@@ -238,7 +238,12 @@ Reviews & Ratings
 
 - `POST /api/reviews` (auth) — create a review after project completion.
 - `GET /api/reviews/worker/:id` — public reviews for a worker with stats.
+- `GET /api/reviews/employer/:id` — public reviews for an employer with stats.
 - `GET /api/reviews/history/me` (auth) — reviews authored by current user.
+
+Notes:
+- Either participant of a completed project (employer or skilled worker) can review the other. The API determines the reviewee as the other party on the project.
+- Duplicate reviews from the same reviewer to the same reviewee on the same project are prevented.
 
 ## Technologies Used
 

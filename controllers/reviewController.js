@@ -26,6 +26,10 @@ async function createReview(req, res, next) {
     // Determine reviewee as the other participant
     const revieweeId = project.createdBy?.toString() === String(req.userId) ? project.assignedTo?.toString() : project.createdBy?.toString();
 
+    // Guard: prevent duplicate reviews from the same reviewer to the same reviewee for the same project
+    const existing = await Review.findOne({ project: project._id, reviewer: req.userId, reviewee: revieweeId });
+    if (existing) { const e = new Error('You have already reviewed this user for this project'); e.status = 409; throw e; }
+
     const doc = await Review.create({ project: project._id, reviewer: req.userId, reviewee: revieweeId, rating, publicFeedback, privateFeedback });
     const populated = await Review.findById(doc._id)
       .populate('project', 'title')
@@ -56,6 +60,26 @@ async function listWorkerReviews(req, res, next) {
   } catch (err) { next(err); }
 }
 
+// GET /api/reviews/employer/:id
+// List public reviews for an employer (reviewee)
+async function listEmployerReviews(req, res, next) {
+  try {
+    const employerId = req.params.id;
+    const reviews = await Review.find({ reviewee: employerId })
+      .sort({ createdAt: -1 })
+      .populate('project', 'title')
+      .populate('reviewer', 'name');
+
+    const agg = await Review.aggregate([
+      { $match: { reviewee: new (require('mongoose').Types.ObjectId)(employerId) } },
+      { $group: { _id: '$reviewee', avgRating: { $avg: '$rating' }, count: { $sum: 1 } } }
+    ]);
+    const stats = agg[0] ? { average: Number(agg[0].avgRating.toFixed(2)), count: agg[0].count } : { average: 0, count: 0 };
+
+    res.json({ reviews, stats });
+  } catch (err) { next(err); }
+}
+
 // GET /api/reviews/history
 // Reviews authored by current user
 async function listMyReviews(req, res, next) {
@@ -69,4 +93,4 @@ async function listMyReviews(req, res, next) {
   } catch (err) { next(err); }
 }
 
-module.exports = { createReview, listWorkerReviews, listMyReviews };
+module.exports = { createReview, listWorkerReviews, listEmployerReviews, listMyReviews };
