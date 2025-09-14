@@ -3,6 +3,7 @@ const User = require('../models/User');
 const Job = require('../models/Job');
 const Project = require('../models/Project');
 const mongoose = require('mongoose');
+const { notify } = require('../services/notifyService');
 
 // POST /api/invites
 async function createInvite(req, res, next) {
@@ -39,6 +40,12 @@ async function createInvite(req, res, next) {
       type: 'invite',
       status: 'pending'
     });
+
+    // Notify worker about new invite
+    try {
+      const link = `/app/invites/${invite._id}`;
+      await notify({ userId: worker._id, title: 'New job invite', message: `You have a new invite for ${job.title}`, type: 'invite', link, email: true });
+    } catch (e) { /* ignore */ }
 
     res.status(201).json({ invite });
   } catch (err) { next(err); }
@@ -81,6 +88,15 @@ async function acceptInvite(req, res, next) {
     job.isActive = false;
     await job.save();
 
+    // Notify both sides
+    try {
+      const link = `/app/projects`;
+      await Promise.all([
+        notify({ userId: invite.worker, title: 'Invite approved', message: `Your invite for ${job.title} was approved and a project started`, type: 'project', link, email: true }),
+        notify({ userId: invite.employer, title: 'Worker accepted', message: `Worker accepted your invite for ${job.title}. Project started.`, type: 'project', link, email: true })
+      ]);
+    } catch (e) { /* ignore */ }
+
     res.json({ invite, project });
   } catch (err) { next(err); }
 }
@@ -97,6 +113,13 @@ async function declineInvite(req, res, next) {
 
     invite.status = 'declined';
     await invite.save();
+
+    // Notify employer that worker declined
+    try {
+      const link = `/app/invites/${invite._id}`;
+      const job = await Job.findById(invite.job);
+      await notify({ userId: invite.employer, title: 'Invite declined', message: `Worker declined your invite for ${job?.title || 'a job'}`, type: 'invite', link, email: true });
+    } catch (e) { /* ignore */ }
     res.json({ invite });
   } catch (err) { next(err); }
 }

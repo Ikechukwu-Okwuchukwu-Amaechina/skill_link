@@ -2,6 +2,7 @@ const Project = require('../models/Project');
 const User = require('../models/User');
 const Invite = require('../models/Invite');
 const Job = require('../models/Job');
+const { notify } = require('../services/notifyService');
 
 // Tiny helper to ensure we have a valid user id in req (auth middleware sets req.userId)
 function requireAuth(req) {
@@ -84,6 +85,14 @@ async function createProject(req, res, next) {
       milestones: Array.isArray(milestones) ? milestones : []
     });
 
+    // If a worker was assigned at creation, notify them
+    try {
+      if (p.assignedTo) {
+        const link = `/app/projects/${p._id}`;
+        await notify({ userId: p.assignedTo, title: 'Assigned to project', message: `You were assigned to ${p.title || 'a project'}`, type: 'project', link, email: true });
+      }
+    } catch (_) { /* ignore notify errors */ }
+
     const populated = await Project.findById(p._id)
       .populate('createdBy', 'name accountType employer.companyName skilledWorker.fullName')
       .populate('assignedTo', 'name accountType skilledWorker.fullName');
@@ -107,6 +116,11 @@ async function updateProject(req, res, next) {
     const allowed = ['title', 'category', 'budget', 'currency', 'deadline', 'progress', 'status', 'assignedTo', 'milestones'];
     const updates = {};
     allowed.forEach((k) => { if (req.body[k] !== undefined) updates[k] = req.body[k]; });
+    // Track changes for notifications (novice style)
+    const prevAssigned = p.assignedTo ? String(p.assignedTo) : '';
+    const prevStatus = p.status;
+    const nextAssigned = updates.assignedTo ? String(updates.assignedTo) : prevAssigned;
+    const assignedChanged = updates.assignedTo !== undefined && nextAssigned !== prevAssigned && !!updates.assignedTo;
 
     const saved = await Project.findByIdAndUpdate(p._id, updates, { new: true, runValidators: true })
       .populate('createdBy', 'name accountType employer.companyName skilledWorker.fullName')
@@ -119,9 +133,23 @@ async function updateProject(req, res, next) {
           await Invite.updateMany({ job: saved.job, worker: saved.assignedTo }, { status: 'completed' });
           await Job.findByIdAndUpdate(saved.job, { isActive: false });
         }
+        // Notify both sides about completion
+        try {
+          const link = `/app/projects/${saved._id}`;
+          if (saved.createdBy) { await notify({ userId: saved.createdBy, title: 'Project completed', message: `${saved.title || 'Project'} was marked completed`, type: 'project', link, email: true }); }
+          if (saved.assignedTo) { await notify({ userId: saved.assignedTo, title: 'Project completed', message: `${saved.title || 'Project'} was marked completed`, type: 'project', link, email: true }); }
+        } catch (_) { }
       } catch (_) {
         // swallow sync errors to avoid blocking response
       }
+    }
+
+    // If assignedTo changed, notify the new assignee
+    if (assignedChanged) {
+      try {
+        const link = `/app/projects/${saved._id}`;
+        await notify({ userId: updates.assignedTo, title: 'Assigned to project', message: `You were assigned to ${saved.title || 'a project'}`, type: 'project', link, email: true });
+      } catch (_) { }
     }
     res.json({ project: saved });
   } catch (err) { next(err); }
@@ -171,6 +199,15 @@ async function addProjectMessage(req, res, next) {
     p.messages.push({ sender: req.userId, text, createdAt: new Date() });
     await p.save();
     const last = p.messages[p.messages.length - 1];
+    // Notify the other party about new message (beginner style)
+    try {
+      const link = `/app/projects/${p._id}`;
+      const senderId = String(req.userId);
+      const toUser = String(p.createdBy) === senderId ? p.assignedTo : p.createdBy;
+      if (toUser) {
+        await notify({ userId: toUser, title: 'New project message', message: 'You have a new message on a project', type: 'project', link, email: true });
+      }
+    } catch (_) { /* ignore notify errors */ }
     res.status(201).json({ message: last });
   } catch (err) { next(err); }
 }
@@ -196,6 +233,15 @@ async function addProjectSubmission(req, res, next) {
     p.submissions.push({ filename, url, note, uploadedAt: new Date() });
     await p.save();
     const file = p.submissions[p.submissions.length - 1];
+    // Notify the other party about new submission
+    try {
+      const link = `/app/projects/${p._id}`;
+      const actor = String(req.userId);
+      const toUser = String(p.createdBy) === actor ? p.assignedTo : p.createdBy;
+      if (toUser) {
+        await notify({ userId: toUser, title: 'New file submission', message: 'A new file was submitted on your project', type: 'project', link, email: true });
+      }
+    } catch (_) { }
     res.status(201).json({ submission: file });
   } catch (err) { next(err); }
 }
@@ -241,6 +287,22 @@ async function updateMilestone(req, res, next) {
       const e = new Error('Not authorized to edit milestone'); e.status = 403; throw e;
     }
     await p.save();
+    // Send simple notifications for submit/approve events
+    try {
+      const link = `/app/projects/${p._id}`;
+      if (user.accountType === 'skilled_worker' && m.status === 'submitted') {
+        // worker submitted -> notify employer (creator)
+        if (p.createdBy) {
+          await notify({ userId: p.createdBy, title: 'Milestone submitted', message: `A milestone was submitted on ${p.title || 'a project'}`, type: 'project', link, email: true });
+        }
+      }
+      if (user.accountType === 'employer' && m.status === 'approved') {
+        // employer approved -> notify worker (assignee)
+        if (p.assignedTo) {
+          await notify({ userId: p.assignedTo, title: 'Milestone approved', message: `A milestone was approved on ${p.title || 'your project'}`, type: 'project', link, email: true });
+        }
+      }
+    } catch (_) { }
     res.json({ milestone: m });
   } catch (err) { next(err); }
 }
@@ -259,6 +321,13 @@ async function requestPayment(req, res, next) {
     p.events.push({ type: 'payment_request', createdBy: req.userId, text, data: { amount } });
     await p.save();
     const ev = p.events[p.events.length - 1];
+    // Notify employer (project creator)
+    try {
+      const link = `/app/projects/${p._id}`;
+      if (p.createdBy) {
+        await notify({ userId: p.createdBy, title: 'Payment requested', message: `Worker requested payment of ${amount}`, type: 'project', link, email: true });
+      }
+    } catch (_) { }
     res.status(201).json({ event: ev });
   } catch (err) { next(err); }
 }
@@ -278,6 +347,13 @@ async function extendDeadline(req, res, next) {
     const text = req.body && req.body.text ? req.body.text : undefined;
     p.events.push({ type: 'deadline_extension', createdBy: req.userId, data: { from: current, to }, text: text });
     await p.save();
+    // Notify assigned worker that the deadline was extended
+    try {
+      const link = `/app/projects/${p._id}`;
+      if (p.assignedTo) {
+        await notify({ userId: p.assignedTo, title: 'Deadline extended', message: `Deadline was changed on ${p.title || 'your project'}`, type: 'project', link, email: true });
+      }
+    } catch (_) { }
     res.json({ project: p });
   } catch (err) { next(err); }
 }
@@ -308,6 +384,13 @@ async function requestDeadlineExtension(req, res, next) {
   p.events.push({ type: 'deadline_extension', createdBy: req.userId, data: { proposedDate }, text: text });
     await p.save();
     const ev = p.events[p.events.length - 1];
+    // Notify employer about request
+    try {
+      const link = `/app/projects/${p._id}`;
+      if (p.createdBy) {
+        await notify({ userId: p.createdBy, title: 'Deadline extension requested', message: 'Worker requested a deadline extension', type: 'project', link, email: true });
+      }
+    } catch (_) { }
     res.status(201).json({ event: ev });
   } catch (err) { next(err); }
 }
@@ -343,6 +426,13 @@ async function approveDeadlineExtension(req, res, next) {
     await p.save();
 
     const approval = p.events[p.events.length - 1];
+    // Notify worker that the extension was approved
+    try {
+      const link = `/app/projects/${p._id}`;
+      if (p.assignedTo) {
+        await notify({ userId: p.assignedTo, title: 'Deadline extension approved', message: 'Your deadline extension request was approved', type: 'project', link, email: true });
+      }
+    } catch (_) { }
     res.json({ project: p, event: approval });
   } catch (err) { next(err); }
 }

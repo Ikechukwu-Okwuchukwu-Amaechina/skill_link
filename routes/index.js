@@ -22,5 +22,7 @@ router.use('/uploads', require('./uploads'));
 router.use('/projects', require('./projects'));
 // Reviews and ratings
 router.use('/reviews', require('./reviews'));
+// Notifications (in-app + email)
+router.use('/notifications', require('./notifications'));
 
 module.exports = router;

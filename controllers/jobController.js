@@ -2,6 +2,7 @@ const Job = require('../models/Job');
 const User = require('../models/User');
 const Invite = require('../models/Invite');
 const Project = require('../models/Project');
+const { notify } = require('../services/notifyService');
 
 function ensureEmployer(user) {
   return user && user.accountType === 'employer';
@@ -90,9 +91,6 @@ async function deleteJob(req, res, next) {
     res.status(204).send();
   } catch (err) { next(err); }
 }
-
-module.exports = { createJob, listMyJobs, getJob, updateJob, deleteJob };
- 
 // POST /api/jobs/:jobId/apply (worker)
 async function applyToJob(req, res, next) {
   try {
@@ -118,6 +116,12 @@ async function applyToJob(req, res, next) {
       type: 'application',
       status: 'applied'
     });
+
+    // Notify employer about new application
+    try {
+      const link = `/app/invites/${invite._id}`;
+      await notify({ userId: job.employer, title: 'New job application', message: `${worker.name || 'A worker'} applied for ${job.title}`, type: 'application', link, email: true });
+    } catch (e) { /* ignore */ }
 
     res.status(201).json({ invite });
   } catch (err) { next(err); }
@@ -164,9 +168,19 @@ async function approveInviteOrApplication(req, res, next) {
       });
     }
 
+    // Notify both sides about approval
+    try {
+      const link = `/app/projects`;
+      await Promise.all([
+        notify({ userId: invite.worker, title: 'Application approved', message: `Your application for ${job?.title || 'a job'} was approved`, type: 'project', link, email: true }),
+        notify({ userId: invite.employer, title: 'Project started', message: `You approved an application for ${job?.title || 'a job'}. Project started.`, type: 'project', link, email: true })
+      ]);
+    } catch (e) { /* ignore */ }
+
     res.json({ invite });
   } catch (err) { next(err); }
 }
+module.exports = { createJob, listMyJobs, getJob, updateJob, deleteJob,applyToJob,approveInviteOrApplication };
+ 
 
-module.exports.applyToJob = applyToJob;
-module.exports.approveInviteOrApplication = approveInviteOrApplication;
+

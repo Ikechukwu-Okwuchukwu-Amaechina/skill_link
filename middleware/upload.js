@@ -1,28 +1,12 @@
+const cloudinary = require('../config/cloudinary');
 const multer = require('multer');
-const path = require('path');
-const fs = require('fs');
 
-// Ensure upload directory exists
-const UPLOAD_DIR = path.join(__dirname, '..', 'uploads');
-if (!fs.existsSync(UPLOAD_DIR)) {
-  fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-}
-
-// Storage engine: save with timestamped filename to avoid collisions
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    cb(null, UPLOAD_DIR);
-  },
-  filename: function (req, file, cb) {
-    const ext = path.extname(file.originalname);
-    const base = path.basename(file.originalname, ext).replace(/[^a-zA-Z0-9-_]/g, '_');
-    cb(null, `${base}-${Date.now()}${ext}`);
-  },
-});
+// Simple memory storage for multer (files stay in memory briefly)
+const storage = multer.memoryStorage();
 
 // Basic image filter
 function imageFileFilter(req, file, cb) {
-  const allowed = /^(image\/(png|jpe?g|gif|webp|bmp|svg|avif\+xml))$/i;
+  const allowed = /^(image\/(png|jpe?g|gif|webp|bmp|svg))$/i;
   if (allowed.test(file.mimetype)) return cb(null, true);
   cb(new Error('Only image files are allowed'));
 }
@@ -32,11 +16,44 @@ function anyFileFilter(req, file, cb) {
   cb(null, true);
 }
 
-// Limits: 10 MB default (override per route if needed)
+// Limits: 10 MB default
 const DEFAULT_LIMITS = { fileSize: 10 * 1024 * 1024 };
 
-// Ready-made upload middlewares
-const uploadAny = multer({ storage, fileFilter: anyFileFilter, limits: DEFAULT_LIMITS });
-const uploadImage = multer({ storage, fileFilter: imageFileFilter, limits: DEFAULT_LIMITS });
+// Upload middlewares with memory storage
+const uploadAny = multer({ 
+  storage, 
+  fileFilter: anyFileFilter, 
+  limits: DEFAULT_LIMITS,
+  onError: function(err, next) {
+    console.error('Multer error:', err);
+    next(err);
+  }
+});
+const uploadImage = multer({ 
+  storage, 
+  fileFilter: imageFileFilter, 
+  limits: DEFAULT_LIMITS,
+  onError: function(err, next) {
+    console.error('Multer error:', err);
+    next(err);
+  }
+});
 
-module.exports = { uploadAny, uploadImage, UPLOAD_DIR };
+// Helper function to upload buffer to Cloudinary
+async function uploadToCloudinary(buffer, options = {}) {
+  return new Promise((resolve, reject) => {
+    cloudinary.uploader.upload_stream(
+      {
+        resource_type: 'auto',
+        folder: options.folder || 'skill_link',
+        ...options
+      },
+      (error, result) => {
+        if (error) reject(error);
+        else resolve(result);
+      }
+    ).end(buffer);
+  });
+}
+
+module.exports = { uploadAny, uploadImage, uploadToCloudinary };

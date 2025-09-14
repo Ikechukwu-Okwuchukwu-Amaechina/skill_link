@@ -2,6 +2,7 @@ const jwt = require('jsonwebtoken');
 const path = require('path');
 const User = require('../models/User');
 const nodemailer = require('nodemailer');
+const { uploadToCloudinary } = require('../middleware/upload');
 
 // Simple in-memory storage for OTP codes (for development - use Redis in production)
 const otpStore = new Map();
@@ -282,17 +283,20 @@ async function employerTrust(req, res, next) {
     const payload = req.body?.employer || req.body || {};
     const updates = {};
 
-    // If files were uploaded via multipart/form-data, map them to verificationDocs
+    // If files were uploaded via multipart/form-data, upload to Cloudinary
     if (Array.isArray(req.files) && req.files.length > 0) {
       // Accept labels as: labels, labels[], label, or label[] (array or single string)
       const labels = payload.labels ?? req.body.labels ?? req.body['labels[]'] ?? req.body.label ?? req.body['label[]'];
       const labelsArr = Array.isArray(labels) ? labels : (typeof labels === 'string' ? [labels] : []);
 
-      const docs = req.files.map(function (f, i) {
+      const docs = await Promise.all(req.files.map(async function (f, i) {
         const label = labelsArr[i] || f.originalname;
-        const urlPath = `/uploads/${path.basename(f.path)}`;
-        return { label, fileUrl: urlPath };
-      });
+        const result = await uploadToCloudinary(f.buffer, {
+          folder: `skill_link/employer_docs/${user._id}`,
+          resource_type: 'auto'
+        });
+        return { label, fileUrl: result.secure_url };
+      }));
       updates['employer.verificationDocs'] = docs;
     } else if (payload.verificationDocs !== undefined) {
       // JSON body fallback
