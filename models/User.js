@@ -17,6 +17,8 @@ const userSchema = new mongoose.Schema(
     isActive: { type: Boolean, default: true },
     isPhoneVerified: { type: Boolean, default: false },
     isEmailVerified: { type: Boolean, default: false },
+  failedLoginAttempts: { type: Number, default: 0 },
+  lockUntil: { type: Date },
 
     // Account type to distinguish between skilled workers and employers
     accountType: { type: String, enum: ['skilled_worker', 'employer'], default: 'skilled_worker', index: true },

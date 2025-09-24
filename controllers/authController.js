@@ -3,6 +3,7 @@ const path = require('path');
 const User = require('../models/User');
 const nodemailer = require('nodemailer');
 const { uploadToCloudinary } = require('../middleware/upload');
+const { recordLoginFailure } = require('../middleware/loginLimiter');
 
 // Simple in-memory storage for OTP codes (for development - use Redis in production)
 const otpStore = new Map();
@@ -168,13 +169,44 @@ async function login(req, res, next) {
     }
 
     const user = await User.findOne({ email });
+    const now = Date.now();
+    if (user) {
+      if (user.lockUntil && user.lockUntil.getTime() > now) {
+        const err = new Error('Account temporarily locked. Try again later');
+        err.status = 423;
+        throw err;
+      }
+    }
+
     if (!user || !user.checkPassword(password)) {
+      recordLoginFailure(req);
+      if (user) {
+        const attempts = (user.failedLoginAttempts || 0) + 1;
+        user.failedLoginAttempts = attempts;
+        const maxAttempts = 5;
+        if (attempts >= maxAttempts) {
+          user.lockUntil = new Date(now + 30 * 60 * 1000);
+          user.failedLoginAttempts = 0;
+        }
+        await user.save();
+      }
       const err = new Error('Invalid credentials');
       err.status = 401;
       throw err;
     }
 
+    user.failedLoginAttempts = 0;
+    user.lockUntil = undefined;
+    await user.save();
+
     const token = signToken(user);
+    const secure = (req.secure || req.headers['x-forwarded-proto'] === 'https');
+    res.cookie('auth_token', token, {
+      httpOnly: true,
+      secure: secure,
+      sameSite: 'lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000
+    });
     res.json({ user: user.toJSON(), token });
   } catch (err) {
     next(err);
