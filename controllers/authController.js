@@ -188,7 +188,7 @@ async function login(req, res, next) {
           user.lockUntil = new Date(now + 30 * 60 * 1000);
           user.failedLoginAttempts = 0;
         }
-        await user.save();
+  await user.save({ validateBeforeSave: false });
       }
       const err = new Error('Invalid credentials');
       err.status = 401;
@@ -197,7 +197,7 @@ async function login(req, res, next) {
 
     user.failedLoginAttempts = 0;
     user.lockUntil = undefined;
-    await user.save();
+  await user.save({ validateBeforeSave: false });
 
     const token = signToken(user);
     const secure = (req.secure || req.headers['x-forwarded-proto'] === 'https');
