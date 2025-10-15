@@ -24,5 +24,7 @@ router.use('/projects', require('./projects'));
 router.use('/reviews', require('./reviews'));
 // Notifications (in-app + email)
 router.use('/notifications', require('./notifications'));
+// Admin API
+router.use('/admin', require('./admin'));
 
 module.exports = router;

@@ -1,0 +1,44 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Admin Dashboard</title>
+  <link rel="stylesheet" href="/admin/style.css" />
+</head>
+<body>
+  <div id="app">
+    <header>
+      <h1>Skill Link — Admin</h1>
+      <div id="auth-area"></div>
+    </header>
+
+    <main>
+      <div id="login" class="card">
+        <h2>Admin Login</h2>
+        <form id="loginForm">
+          <label>Email<br><input type="email" name="email" required></label>
+          <label>Password<br><input type="password" name="password" required></label>
+          <button type="submit">Login</button>
+        </form>
+        <div id="loginMsg" class="muted"></div>
+      </div>
+
+      <div id="dashboard" style="display:none;">
+        <nav class="tabs">
+          <button data-tab="users" class="active">Users</button>
+          <button data-tab="jobs">Jobs</button>
+          <button data-tab="payments">Payments</button>
+        </nav>
+
+        <section id="content">
+          <div id="usersView" class="view"></div>
+          <div id="jobsView" class="view" style="display:none;"></div>
+          <div id="paymentsView" class="view" style="display:none;"></div>
+        </section>
+      </div>
+    </main>
+  </div>
+  <script src="/admin/admin.js"></script>
+</body>
+</html>

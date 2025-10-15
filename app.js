@@ -65,6 +65,13 @@ app.get('/health', function (req, res) {
 const apiRouter = require('./routes');
 app.use('/api', apiRouter);
 
+// Serve admin static SPA and public assets
+app.use('/admin', express.static(path.join(__dirname, 'public', 'admin')));
+app.use('/admin/style.css', express.static(path.join(__dirname, 'public', 'admin', 'style.css')));
+app.use('/admin/admin.js', express.static(path.join(__dirname, 'public', 'admin', 'admin.js')));
+
+
+
 // ...
 
 // 404 and error handlers
