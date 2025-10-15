@@ -113,21 +113,22 @@ document.addEventListener('DOMContentLoaded', function () {
     const el = document.getElementById('usersView');
     if (!users.length) return el.innerHTML = '<p class="muted">No users found</p>';
     const rows = users.map(u => `<tr><td>${escapeHtml(u.name)}</td><td>${escapeHtml(u.email)}</td><td>${escapeHtml(u.phone)}</td><td>${escapeHtml(u.role)}</td><td>${new Date(u.createdAt).toLocaleString()}</td></tr>`).join('');
-    el.innerHTML = `<table><thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Role</th><th>Joined</th></tr></thead><tbody>${rows}</tbody></table>`;
+    el.innerHTML = `<h3>Total Users: ${users.length}</h3><table><thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Role</th><th>Joined</th></tr></thead><tbody>${rows}</tbody></table>`;
   }
 
   function renderJobs(jobs) {
     const el = document.getElementById('jobsView');
     if (!jobs.length) return el.innerHTML = '<p class="muted">No jobs found</p>';
     const rows = jobs.map(j => `<tr><td>${escapeHtml(j.title)}</td><td>${escapeHtml((j.description||'').substring(0,80))}</td><td>${escapeHtml((j.employer || {}).name || '')}</td><td>${new Date(j.createdAt).toLocaleString()}</td></tr>`).join('');
-    el.innerHTML = `<table><thead><tr><th>Title</th><th>Description</th><th>Employer</th><th>Posted</th></tr></thead><tbody>${rows}</tbody></table>`;
+    el.innerHTML = `<h3>Total Jobs: ${jobs.length}</h3><table><thead><tr><th>Title</th><th>Description</th><th>Employer</th><th>Posted</th></tr></thead><tbody>${rows}</tbody></table>`;
   }
 
   function renderPayments(payments) {
     const el = document.getElementById('paymentsView');
     if (!payments.length) return el.innerHTML = '<p class="muted">No payments found</p>';
+    const totalAmount = payments.reduce((sum, p) => sum + (p.amount || 0), 0);
     const rows = payments.map(p => `<tr><td>${escapeHtml(p.type)}</td><td>${escapeHtml((p.worker||{}).name||'')}</td><td>${escapeHtml((p.employer||{}).name||'')}</td><td>${p.amount} ${escapeHtml(p.currency||'')}</td><td>${new Date(p.createdAt).toLocaleString()}</td></tr>`).join('');
-    el.innerHTML = `<table><thead><tr><th>Type</th><th>Worker</th><th>Employer</th><th>Amount</th><th>Date</th></tr></thead><tbody>${rows}</tbody></table>`;
+    el.innerHTML = `<h3>Total Payments: ${payments.length} | Total Amount: ${totalAmount.toLocaleString()}</h3><table><thead><tr><th>Type</th><th>Worker</th><th>Employer</th><th>Amount</th><th>Date</th></tr></thead><tbody>${rows}</tbody></table>`;
   }
 
 });
