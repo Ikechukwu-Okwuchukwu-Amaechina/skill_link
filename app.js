@@ -65,12 +65,13 @@ app.get('/health', function (req, res) {
 const apiRouter = require('./routes');
 app.use('/api', apiRouter);
 
-// Serve admin static SPA and public assets
+// Serve admin static files
 app.use('/admin', express.static(path.join(__dirname, 'public', 'admin')));
 
-
-
-// ...
+// Root route
+app.get('/', function (req, res) {
+  res.json({ message: 'Skill Link API - Visit /admin for dashboard or /api for API endpoints' });
+});
 
 // 404 and error handlers
 app.use(notFoundHandler);
